@@ -1,0 +1,77 @@
+{
+  "entities": {
+    "DeviceRecord": {
+      "title": "DeviceRecord",
+      "description": "Registered device owned by the authenticated user for SMS relay.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owner Firebase Auth UID" },
+        "deviceName": { "type": "string", "description": "Human-readable device model or label" },
+        "role": { "type": "string", "enum": ["primary_sim", "remote_viewer"] },
+        "publicKey": { "type": "string", "description": "Base64-encoded X.509 EC P-256 public key" },
+        "isOnline": { "type": "boolean" },
+        "batteryLevel": { "type": "integer" },
+        "simCarrier": { "type": "string" },
+        "pendingCount": { "type": "integer" },
+        "lastSeenAt": { "type": "string", "format": "date-time", "description": "Client submits FieldValue.serverTimestamp()" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Client submits FieldValue.serverTimestamp()" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Client submits FieldValue.serverTimestamp()" }
+      },
+      "required": ["userId", "deviceName", "role", "publicKey", "isOnline", "batteryLevel", "simCarrier", "pendingCount", "lastSeenAt", "createdAt", "updatedAt"]
+    },
+    "PairingSession": {
+      "title": "PairingSession",
+      "description": "ECDH key-exchange and mutual confirmation pairing session between two devices.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "primaryDeviceId": { "type": "string" },
+        "primaryDeviceName": { "type": "string" },
+        "primaryPublicKey": { "type": "string" },
+        "remoteDeviceId": { "type": "string" },
+        "remoteDeviceName": { "type": "string" },
+        "remotePublicKey": { "type": "string" },
+        "pairingCode": { "type": "string" },
+        "verificationSas": { "type": "string" },
+        "primaryConfirmed": { "type": "boolean" },
+        "remoteConfirmed": { "type": "boolean" },
+        "status": { "type": "string", "enum": ["pending", "awaiting_confirmation", "active", "revoked"] },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Client submits FieldValue.serverTimestamp()" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Client submits FieldValue.serverTimestamp()" }
+      },
+      "required": ["userId", "primaryDeviceId", "primaryDeviceName", "primaryPublicKey", "remoteDeviceId", "remoteDeviceName", "remotePublicKey", "pairingCode", "verificationSas", "primaryConfirmed", "remoteConfirmed", "status", "createdAt", "updatedAt"]
+    },
+    "RelayEnvelope": {
+      "title": "RelayEnvelope",
+      "description": "E2E encrypted temporary relay envelope; contains zero plaintext SMS fields and is deleted after local persistence.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "pairingId": { "type": "string" },
+        "sourceDeviceId": { "type": "string" },
+        "targetDeviceId": { "type": "string" },
+        "encryptedPayload": { "type": "string", "description": "Base64 AES-256-GCM ciphertext" },
+        "iv": { "type": "string", "description": "Base64 12-byte GCM IV" },
+        "direction": { "type": "string", "enum": ["inbound_sms", "outbound_command", "delivery_receipt"] },
+        "status": { "type": "string", "enum": ["pending", "delivered", "failed"] },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Client submits FieldValue.serverTimestamp()" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Client submits FieldValue.serverTimestamp()" }
+      },
+      "required": ["userId", "pairingId", "sourceDeviceId", "targetDeviceId", "encryptedPayload", "iv", "direction", "status", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/devices/{deviceId}": {
+      "schema": { "$ref": "#/entities/DeviceRecord" },
+      "description": "Registered devices belonging to the signed-in user."
+    },
+    "/users/{userId}/pairings/{pairingId}": {
+      "schema": { "$ref": "#/entities/PairingSession" },
+      "description": "Key-exchange and device pairing records belonging to the signed-in user."
+    },
+    "/users/{userId}/relay_messages/{messageId}": {
+      "schema": { "$ref": "#/entities/RelayEnvelope" },
+      "description": "Temporary end-to-end encrypted relay queue deleted after delivery."
+    }
+  }
+}

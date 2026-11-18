@@ -1,0 +1,6 @@
+{
+  "name": "DualPhone SMS Sync",
+  "description": "Android SMS messenger and end-to-end encrypted real-time SMS synchronization relay between two devices.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

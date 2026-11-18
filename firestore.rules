@@ -1,0 +1,171 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Reusable Hardened Primitives
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Schema Validators
+    function isValidDevice(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.deviceName is string && data.deviceName.size() >= 1 && data.deviceName.size() <= 80 &&
+             data.role in ['primary_sim', 'remote_viewer'] &&
+             data.publicKey is string && data.publicKey.size() >= 1 && data.publicKey.size() <= 512 &&
+             data.isOnline is bool &&
+             data.batteryLevel is int && data.batteryLevel >= 0 && data.batteryLevel <= 100 &&
+             data.simCarrier is string && data.simCarrier.size() <= 80 &&
+             data.pendingCount is int && data.pendingCount >= 0 && data.pendingCount <= 100000 &&
+             data.lastSeenAt is timestamp && data.lastSeenAt <= request.time &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidPairing(data) {
+      return isValidId(data.primaryDeviceId) &&
+             data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.primaryDeviceName is string && data.primaryDeviceName.size() >= 1 && data.primaryDeviceName.size() <= 80 &&
+             data.primaryPublicKey is string && data.primaryPublicKey.size() >= 1 && data.primaryPublicKey.size() <= 512 &&
+             data.remoteDeviceId is string && data.remoteDeviceId.size() <= 128 &&
+             data.remoteDeviceName is string && data.remoteDeviceName.size() <= 80 &&
+             data.remotePublicKey is string && data.remotePublicKey.size() <= 512 &&
+             data.pairingCode is string && data.pairingCode.size() >= 6 && data.pairingCode.size() <= 16 &&
+             data.verificationSas is string && data.verificationSas.size() <= 16 &&
+             data.primaryConfirmed is bool &&
+             data.remoteConfirmed is bool &&
+             data.status in ['pending', 'awaiting_confirmation', 'active', 'revoked'] &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidRelayMessage(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             isValidId(data.pairingId) &&
+             isValidId(data.sourceDeviceId) &&
+             isValidId(data.targetDeviceId) &&
+             data.encryptedPayload is string && data.encryptedPayload.size() >= 1 && data.encryptedPayload.size() <= 16384 &&
+             data.iv is string && data.iv.size() >= 1 && data.iv.size() <= 64 &&
+             data.direction in ['inbound_sms', 'outbound_command', 'delivery_receipt'] &&
+             data.status in ['pending', 'delivered', 'failed'] &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    // 1. Registered Devices
+    match /users/{userId}/devices/{deviceId} {
+      allow get: if isOwner(userId) && isValidId(deviceId);
+      allow list: if isOwner(userId);
+
+      allow create: if isOwner(userId) &&
+                       isValidId(deviceId) &&
+                       incoming().userId == request.auth.uid &&
+                       incoming().keys().hasAll(['userId', 'deviceName', 'role', 'publicKey', 'isOnline', 'batteryLevel', 'simCarrier', 'pendingCount', 'lastSeenAt', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'deviceName', 'role', 'publicKey', 'isOnline', 'batteryLevel', 'simCarrier', 'pendingCount', 'lastSeenAt', 'createdAt', 'updatedAt']) &&
+                       isValidDevice(incoming());
+
+      allow update: if isOwner(userId) &&
+                       isValidId(deviceId) &&
+                       isValidDevice(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['deviceName', 'role', 'publicKey', 'isOnline', 'batteryLevel', 'simCarrier', 'pendingCount', 'lastSeenAt', 'updatedAt']);
+
+      allow delete: if isOwner(userId) && isValidId(deviceId);
+    }
+
+    // 2. Device Pairings
+    match /users/{userId}/pairings/{pairingId} {
+      allow get: if isOwner(userId) && isValidId(pairingId);
+      allow list: if isOwner(userId);
+
+      allow create: if isOwner(userId) &&
+                       isValidId(pairingId) &&
+                       incoming().userId == request.auth.uid &&
+                       incoming().keys().hasAll(['userId', 'primaryDeviceId', 'primaryDeviceName', 'primaryPublicKey', 'remoteDeviceId', 'remoteDeviceName', 'remotePublicKey', 'pairingCode', 'verificationSas', 'primaryConfirmed', 'remoteConfirmed', 'status', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'primaryDeviceId', 'primaryDeviceName', 'primaryPublicKey', 'remoteDeviceId', 'remoteDeviceName', 'remotePublicKey', 'pairingCode', 'verificationSas', 'primaryConfirmed', 'remoteConfirmed', 'status', 'createdAt', 'updatedAt']) &&
+                       isValidPairing(incoming());
+
+      allow update: if isOwner(userId) &&
+                       isValidId(pairingId) &&
+                       isValidPairing(incoming()) &&
+                       existing().status != 'revoked' &&
+                       incoming().userId == existing().userId &&
+                       incoming().primaryDeviceId == existing().primaryDeviceId &&
+                       incoming().primaryPublicKey == existing().primaryPublicKey &&
+                       incoming().pairingCode == existing().pairingCode &&
+                       incoming().createdAt == existing().createdAt &&
+                       (
+                         // Action: Remote device joins pairing session
+                         (existing().status == 'pending' &&
+                          incoming().status == 'awaiting_confirmation' &&
+                          isValidId(incoming().remoteDeviceId) &&
+                          incoming().remotePublicKey.size() >= 1 &&
+                          incoming().diff(existing()).affectedKeys().hasOnly(['remoteDeviceId', 'remoteDeviceName', 'remotePublicKey', 'verificationSas', 'remoteConfirmed', 'status', 'updatedAt'])) ||
+                         // Action: Mutual confirmation on either phone
+                         ((existing().status == 'awaiting_confirmation' || existing().status == 'pending') &&
+                          incoming().status in ['awaiting_confirmation', 'active'] &&
+                          incoming().diff(existing()).affectedKeys().hasOnly(['primaryConfirmed', 'remoteConfirmed', 'verificationSas', 'status', 'updatedAt'])) ||
+                         // Action: Revoke / disconnect pairing
+                         (incoming().status == 'revoked' &&
+                          incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']))
+                       );
+
+      allow delete: if isOwner(userId) && isValidId(pairingId);
+    }
+
+    // 3. Temporary Encrypted Relay Queue
+    match /users/{userId}/relay_messages/{messageId} {
+      allow get: if isOwner(userId) && isValidId(messageId);
+      allow list: if isOwner(userId);
+
+      allow create: if isOwner(userId) &&
+                       isValidId(messageId) &&
+                       incoming().userId == request.auth.uid &&
+                       incoming().keys().hasAll(['userId', 'pairingId', 'sourceDeviceId', 'targetDeviceId', 'encryptedPayload', 'iv', 'direction', 'status', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'pairingId', 'sourceDeviceId', 'targetDeviceId', 'encryptedPayload', 'iv', 'direction', 'status', 'createdAt', 'updatedAt']) &&
+                       isValidRelayMessage(incoming()) &&
+                       incoming().status == 'pending' &&
+                       exists(/databases/$(database)/documents/users/$(userId)/pairings/$(incoming().pairingId)) &&
+                       get(/databases/$(database)/documents/users/$(userId)/pairings/$(incoming().pairingId)).data.status == 'active';
+
+      allow update: if isOwner(userId) &&
+                       isValidId(messageId) &&
+                       isValidRelayMessage(incoming()) &&
+                       existing().status == 'pending' &&
+                       incoming().status in ['delivered', 'failed'] &&
+                       incoming().userId == existing().userId &&
+                       incoming().pairingId == existing().pairingId &&
+                       incoming().sourceDeviceId == existing().sourceDeviceId &&
+                       incoming().targetDeviceId == existing().targetDeviceId &&
+                       incoming().encryptedPayload == existing().encryptedPayload &&
+                       incoming().iv == existing().iv &&
+                       incoming().direction == existing().direction &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']);
+
+      allow delete: if isOwner(userId) && isValidId(messageId);
+    }
+  }
+}
